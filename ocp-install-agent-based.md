@@ -40,8 +40,15 @@ curl -sL https://developers.redhat.com/content-gateway/rest/mirror/pub/openshift
 
 ## Install Mirror Registry 
 
+Set some env. variables 
+
 ```
-sudo ./mirror-registry install   --quayHostname bastion.lan   --quayRoot /mnt/quay-root 
+BASTION_HOST=bastion.lan  # Set to hostname of the mirror server 
+DNS_SERVER=10.0.1.8      # Set to IP of DNS server
+```
+
+```
+sudo ./mirror-registry install   --quayHostname $BASTION_HOST   --quayRoot /mnt/quay-root 
 ```
 
 Note down username “init” and password.
@@ -50,7 +57,7 @@ Note down username “init” and password.
 REG_PW=xxxxxxxyyyyyyyyyyzzzzzzzzzzz
 ```
 
-Note, now to remove it again if needed
+Note, how to remove it again, if needed
 
 ```
 sudo ./mirror-registry uninstall --quayRoot /mnt/quay-root --autoApprove
@@ -69,7 +76,7 @@ Use the username and password generated during installation to log into the mirr
 podman login --authfile pull-secret.txt \
   -u init \
   -p <password> \
-  bastion.lan:8443> \
+  $BASTION_HOST:8443> \
   --tls-verify=false
 ```
 
@@ -94,51 +101,30 @@ Save the file as:
 ### Test registry is up
 
 ```
-curl -k https://bastion.lan:8443/health/instance
+curl -k https://$BASTION_HOST:8443/health/instance
 ```
 
 ### Log into Quay UI with
 
 ```
-https://bastion.lan:8443/ 
+https://$BASTION_HOST:8443/ 
 ```
 
 ### Set up environment variables
 
-```
-cat >> env.sh << EOF
-OCP_RELEASE=4.10.20
-#For <release_version>, specify the tag that corresponds to the version of OpenShift Container Platform to install, such as 4.5.4
-LOCAL_REGISTRY='bastion.lan:8443'
-#For <local_registry_host_name>, specify the registry domain name for your mirror repository, and for <local_registry_host_port>, specify the port that it serves content on.
-LOCAL_REPOSITORY='ocp4/openshift4'
-#For <local_repository_name>, specify the name of the repository to create in your registry, such as ocp4/openshift4
-PRODUCT_REPO='openshift-release-dev'
-LOCAL_SECRET_JSON='pull-secret.json'
-#For <path_to_pull_secret>, specify the absolute path to and file name of the pull secret for your mirror registry that you created.
-RELEASE_NAME="ocp-release"
-ARCHITECTURE=x86_64
-REMOVABLE_MEDIA_PATH=/tmp/images
-#Export the path to the directory to host the mirrored images. Specify the full path, including the initial forward slash (/) character.
-EOF
-```
-
-```
-source env.sh
-```
+TBD 
 
 ## Populate the registry 
 
 ### Install tools
 
 
-
 ### Install oc plugin 
 
 ```
-# Install oc mirror plugin in one command 
 curl -s -o - https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/oc-mirror.tar.gz | \
-tar x -C ~/bin -vzf - oc-mirror && chmod +x ~/bin/oc-mirror
+sudo tar x -C /usr/local/bin -vzf - oc-mirror && \
+sudo chmod +x /usr/local/bin/oc-mirror
 
 oc mirror help
 ```
@@ -147,28 +133,31 @@ oc mirror help
 
 ```
 oc mirror list operators --catalog registry.redhat.io/redhat/redhat-operator-index:v4.11
+
 oc mirror list releases --channel fast-4.11
 
 # Extract OCP version from the Release Image 
-oc adm release info -o template --template '{{.metadata.version}}' --insecure=true bastion.lan:8443/poc-mirror/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
 
-# Find the image URL by logging into the registry with your browser, as above. 
+oc adm release info -o template --template '{{.metadata.version}}' --insecure=true $BASTION_HOST:8443/poc-mirror/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
+
+# Find the image URL by logging into the registry with your browser, as above, after populating the registry.  
 ```
 
 ### Generate the image set config file
 
 ```
-oc mirror init --registry bastion.lan:8443/poc-mirror/mirror/oc-mirror-metadata > imageset-config.yaml
+oc mirror init --registry $BASTION_HOST:8443/poc-mirror/mirror/oc-mirror-metadata > imageset-config-init.yaml
 ```
 
 Edit the config file.  Here is an example:
 
 ```
+cat > imageset-config.yaml <<END
 kind: ImageSetConfiguration
 apiVersion: mirror.openshift.io/v1alpha2
 storageConfig:
   registry:
-    imageURL: bastion.lan:8443/poc-mirror/mirror/oc-mirror-metadata
+    imageURL: $BASTION_HOST:8443/poc-mirror/mirror/oc-mirror-metadata
     skipTLS: false
 mirror:
   platform:
@@ -192,6 +181,7 @@ mirror:
   additionalImages:
   - name: registry.redhat.io/ubi8/ubi:latest
   helm: {}
+END
 ```
 
 See the reference list of operator names in the Appendix 
@@ -199,16 +189,16 @@ See the reference list of operator names in the Appendix
 ### Mirror the content
 
 ```
-oc mirror --config=./imageset-config.yaml docker://bastion.lan:8443/poc-mirror --dry-run 
+oc mirror --config=./imageset-config.yaml docker://$BASTION_HOST:8443/poc-mirror --dry-run 
 # This will take some time!
 ```
 
-### Find the generated catalogSource & imageContentSourcePolicy in the results-* dir 
+### Find the generated catalogSource & imageContentSourcePolicy in the "results-*" dir 
 
 ```
 ls -ltr oc-mirror-workspace/ | tail -1    # Find the newest dir
 ```
-Later, the config in this dir will be applied to the OCP cluster
+Later, the yaml config in this dir will be applied to the OCP cluster. 
 
 
 Verify that the Operators are available in the OCP console (how to do this on the CLI?)
@@ -230,40 +220,38 @@ Recommend to build the binary in advance.  Follow the blog (note that 6GB of RAM
 
 Check which OCP release & OCP version image the openshift-install binary is configured for. 
 
-Example output:
+Example:
 
 ```
 ./openshift-installer version
 built from commit ddf29b4b5bdb297648ce1b71b916b8cc1212f19a
-release image bastion.lan:8443/poc-mirror/openshift/release-images@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4
+release image $BASTION_HOST:8443/poc-mirror/openshift/release-images@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4
 release architecture amd64
 ```
-- Note that the (dev preview) binary may be primed to install from openshift.org (the dev registry).  If this is the case this needs to be changed to point to your mirrored registry using the "billi-release.sh" script in the Appendix. 
+- Note that the (dev preview) binary may be primed to install from 'openshift.org' (the dev registry).  If this is the case this needs to be changed to point to your mirrored registry using the "billi-release.sh" script in the Appendix. 
 
 
 
 #### Add the extra values in the install-config.yaml
 
 ```
-The pull secret for the Internet registry (see: bastion.lan:8443 below, under pullSecret) 
+The pull secret for the Internet registry (see: $BASTION_HOST:8443 below, under pullSecret) 
 The certificate (quay-rootCA/rootCA.pem)
-The location of the OVA file, e.g. http://helper.lan/  (if needed)
 ```
-
+FIXME: Is this still needed? 
 
 ### Verify the release image in the registry 
 
 ```
 oc adm release info -o template --template '{{.metadata.version}}' --insecure=true \
-bastion.lan:8443/poc-mirror/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
+$BASTION_HOST:8443/poc-mirror/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
 ```
-
-
+- Fetch the sha value from the Registry UI. The Release Image is usually in the "release-images' repo. 
 
 
 ## OpenShift installation
 
-Generate the ISO boot image
+### Generate the ISO boot image
 
 Boot each type of node to determine:
 - Primary interface name, e.g. ens192
@@ -283,6 +271,7 @@ Get the mirror registry certificate from `quay-rootCA/rootCA.pem`
 Example:
 
 ```
+cat > install-config.yaml <<END
 apiVersion: v1
 baseDomain: example.com
 compute:
@@ -329,7 +318,7 @@ platform:
 pullSecret: |
   {
     "auths": {
-      "bastion.lan:8443": {
+      "$BASTION_HOST:8443": {
         "auth": "aW5pdDo0MDNXXXXXXFmWTYYYYYYUXY4V0ZkQk5FazlEeUlubA=="
       }
     }
@@ -362,15 +351,15 @@ sshKey: |
   ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABXXXXXXXXXXXXXXXXXXXXXIFebRYnjXdsP3uex+Tti9g3WE+SriQhh9FcpkdZQkLV1nF0VaOKjVEF3lif7DeJfOlMwO0x8wLSqFUv94JccnlG8+Nwab+UJ3yinQXC3r1dJ330uoT44Qc0dHn8fiJm0jCDozcvVV9dPUOkONcGkBMWmZgxbjeBW1JgtM6t1NTB1Zu7yVpG1P+Ot4jlBxREqzGx/O3UGk97CJMncaT7wfgODovp0yo86lzc1UshChXYv6JeO360rmvILsmnOdZlzSVYiq+czSWztMDQMfT9fOCp8SZH1M2/puhRf+w7vcyAAgzF30BHYgU9CyIE/tkZ sbylo@ovpn-117-52.sin2.redhat.com
 imageContentSources:
 - mirrors:
-  - bastion.lan:8443/poc-mirror/openshift/release
+  - $BASTION_HOST:8443/poc-mirror/openshift/release
   source: quay.io/openshift-release-dev/ocp-v4.0-art-dev
 - mirrors:
-  - bastion.lan:8444/poc-mirror/openshift/release-images
+  - $BASTION_HOST:8444/poc-mirror/openshift/release-images
   source: quay.io/openshift-release-dev/ocp-release
-
+END
 ```
   
-Create the agent-config.yaml file.  Change the following fields:
+To create agent-config.yaml, change the following fields:
 
 - rendezvousIP
 - hosts[].interfaces.macAddress
@@ -382,6 +371,7 @@ Create the agent-config.yaml file.  Change the following fields:
 Example agent config file:
 
 ```
+cat > agent-config.yaml <<END
 apiVersion: v1alpha1
 kind: AgentConfig
 metadata:
@@ -407,7 +397,7 @@ hosts:
       dns-resolver:
         config:
           server:
-            - 10.0.1.8
+            - $DNS_SERVER
   - hostname: master2
     interfaces:
      - name: ens192
@@ -427,7 +417,7 @@ hosts:
       dns-resolver:
         config:
           server:
-            - 10.0.1.8
+            - $DNS_SERVER
   - hostname: master3
     interfaces:
      - name: ens192
@@ -447,7 +437,7 @@ hosts:
       dns-resolver:
         config:
           server:
-            - 10.0.1.8
+            - $DNS_SERVER
   - hostname: worker1
     interfaces:
      - name: ens192
@@ -467,7 +457,7 @@ hosts:
       dns-resolver:
         config:
           server:
-            - 10.0.1.8
+            - $DNS_SERVER
   - hostname: worker2
     interfaces:
      - name: ens192
@@ -487,12 +477,12 @@ hosts:
       dns-resolver:
         config:
           server:
-            - 10.0.1.8 
+            - $DNS_SERVER 
+END
 ```
 
 
 ### Apply the catalogSource & imageContentSourcePolicy yaml
-
 
 The generated yaml files are found under the `oc-mirror-workspace` dir which was generated by the "oc mirror" command above. 
 
@@ -501,11 +491,11 @@ Example:
 oc apply -f oc-mirror-workspace/results-1661347016 
 ```
 
-
-
 ## Appendix 
 
 ### Reference list of Operator names from a 4.11 Release 
+
+Add these operator names to the 'imageset-config.yaml', created above.
 
 ```
 NAME                                          DISPLAY NAME                                           DEFAULT CHANNEL
