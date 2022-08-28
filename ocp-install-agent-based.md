@@ -25,6 +25,23 @@ Fetch your pull-secret and store in a pull-secret.text file.  If needed, ask the
 
 https://console.redhat.com/openshift/install/pull-secret 
 
+### Yum
+
+Note: If the system is behind an HTTP proxy, add the details in /etc/rhsm/rhsm.conf as follows (see: https://access.redhat.com/solutions/65300):
+
+```
+# an http proxy server to use (enter server FQDN)
+proxy_hostname = myproxy.example.com 
+
+# port for http proxy server
+proxy_port = 8080
+
+# user name for authenticating to an http proxy, if needed
+proxy_user = proxy_username
+
+# password for basic http proxy auth, if needed
+proxy_password = proxy_password
+```
 
 
 ## Install Mirror Registry 
@@ -479,6 +496,14 @@ hosts:
           server:
             - $DNS_SERVER 
 END
+```
+
+## Disabling the default OperatorHub sources
+
+In a restricted network environment, you must disable the default catalogs as a cluster administrator. 
+
+```
+oc patch OperatorHub cluster --type json -p '[{"op": "add", "path": "/spec/disableAllDefaultSources", "value": true}]'
 ```
 
 
