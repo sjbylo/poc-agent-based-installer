@@ -3,29 +3,23 @@
 ### Prerequisites 
 
 - Access to Bastion (Staging Utility VM) 
-- RHEL Base installation, registered and up-to-date (yum update -y) 
-
-## Install tools
-
-### oc
+- RHEL Base installation, registered and up-to-date (yum update) 
 
 ```
-curl -s https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz -o - | tar xzvf - -C /usr/local/bin oc
+subscription-manager register --username=my@email.com --password=xxyyyzzz
 ```
 
-### Required tools
+If there is no DNS, set up DNS on this server 
+
+
+Set up (or check) the proxy configuration: 
 
 ```
-sudo yum -y install podman httpd-tools openssl
+export NO_PROXY=<local_registry_host_name>
+export HTTP_PROXY=<proxy server IP>:8080
+export HTTPS_PROXY=<proxy server IP>:8080
+# Add these to ~/bashrc 
 ```
-
-### Configure pull secrets 
-
-Fetch your pull-secret and store in a pull-secret.text file.  If needed, ask the customer to do this with their Red Hat account. 
-
-https://console.redhat.com/openshift/install/pull-secret 
-
-### Yum
 
 Note: If the system is behind an HTTP proxy, add the details in /etc/rhsm/rhsm.conf as follows (see: https://access.redhat.com/solutions/65300):
 
@@ -43,6 +37,46 @@ proxy_user = proxy_username
 proxy_password = proxy_password
 ```
 
+Set some env. variables 
+
+```
+DNS_SERVER=10.0.1.8      # Set to IP of DNS server
+REGISTRY_SERVER=bastion.lan   # Set to hostname of the mirror server 
+```
+Add these to ~/.bashrc 
+
+
+## Install tools
+
+### oc
+
+```
+# All commands are run as user (non-root) unless otherwise stated 
+curl -s https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz -o - | sudo tar xzvf - -C /usr/local/bin oc
+
+oc version
+Client Version: 4.11.0
+Kustomize Version: v4.5.4
+```
+
+### Configure pull secrets 
+
+Fetch your pull-secret and store in a pull-secret.txt file.  If needed, ask the customer to do this with their Red Hat account. 
+
+https://console.redhat.com/openshift/install/pull-secret 
+
+### Yum
+
+```
+sudo yum install podman httpd-tools openssl
+```
+
+Install tmux and other useful commands 
+
+```
+sudo yum install tmux net-tools 
+```
+
 
 ## Install Mirror Registry 
 
@@ -57,33 +91,34 @@ curl -sL https://developers.redhat.com/content-gateway/rest/mirror/pub/openshift
 
 ## Install Mirror Registry 
 
-Set some env. variables 
+Note: Be sure to add the folowing to /etc/hosts, otherwise you might see a "segmentation violation":
 
 ```
-BASTION_HOST=bastion.lan  # Set to hostname of the mirror server 
-DNS_SERVER=10.0.1.8      # Set to IP of DNS server
+127.0.0.1   <output of hostname command>
 ```
 
 ```
-sudo ./mirror-registry install   --quayHostname $BASTION_HOST   --quayRoot /mnt/quay-root 
+###sudo ./mirror-registry install   --quayHostname $REGISTRY_SERVER   --quayRoot /mnt/quay-root 
+mkdir $HOME/quay 
+sudo ./mirror-registry install   --quayHostname $REGISTRY_SERVER --quayRoot $HOME/quay-root
 ```
 
-Note down username “init” and password.
+Note down username “init” and auto generated password.
 
 ```	
-REG_PW=xxxxxxxyyyyyyyyyyzzzzzzzzzzz
+REGISTRY_PW='xxxxxxxyyyyyyyyyyzzzzzzzzzzz'
 ```
 
-Note, how to remove it again, if needed
+Note, how to remove the registry again, if needed
 
 ```
-sudo ./mirror-registry uninstall --quayRoot /mnt/quay-root --autoApprove
+sudo ./mirror-registry uninstall --quayRoot $HOME/quay-root --autoApprove
 ```
 
 ### Set up registry root certs
 
 ```
-sudo cp /mnt/quay-root/quay-rootCA/rootCA* /etc/pki/ca-trust/source/anchors/ -v
+sudo cp $HOME/quay-root/quay-rootCA/rootCA* /etc/pki/ca-trust/source/anchors/ -v
 sudo update-ca-trust extract
 ```
 
@@ -92,39 +127,43 @@ Use the username and password generated during installation to log into the mirr
 ```
 podman login --authfile pull-secret.txt \
   -u init \
-  -p <password> \
-  $BASTION_HOST:8443> \
+  -p $REGISTRY_PW \
+  $REGISTRY_SERVER:8443 \
   --tls-verify=false
 ```
 
 Generate the base64-encoded username and password.  Ensure it's in the pull-secret
 
 ```
-echo -n '<user_name>:<password>' | base64 -w0
+echo -n init:$REGISTRY_PW | base64 -w0
+REGISTRY_AUTH=`echo -n init:$REGISTRY_PW | base64 -w0` 
 ```
 
-Generate yaml file
+Generate yaml file (optional) 
 
 ```
-cat ./pull-secret.text | jq .  > <path>/<pull_secret_file_in_json>
+cat ./pull-secret.txt | jq .  > <path>/<pull_secret_file_in_json>
 ```
 
 Save the file as:
 ```
-~/containers/auth.json
-```
+mkdir ~/.config/containers 
+cp pull-secret.txt  ~/.config/containers/auth.json
 
+#mkdir ~/.docker    # may not be needed 
+#cp pull-secret.txt  ~/.docker/config.json
+```
 
 ### Test registry is up
 
 ```
-curl -k https://$BASTION_HOST:8443/health/instance
+curl -k https://$REGISTRY_SERVER:8443/health/instance
 ```
 
 ### Log into Quay UI with
 
 ```
-https://$BASTION_HOST:8443/ 
+https://$REGISTRY_SERVER:8443/ 
 ```
 
 ### Set up environment variables
@@ -135,8 +174,7 @@ TBD
 
 ### Install tools
 
-
-### Install oc plugin 
+#### Install oc mirror plugin 
 
 ```
 curl -s -o - https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/oc-mirror.tar.gz | \
@@ -145,25 +183,13 @@ sudo chmod +x /usr/local/bin/oc-mirror
 
 oc mirror help
 ```
+See [this blog](https://cloud.redhat.com/blog/mirroring-openshift-registries-the-easy-way) for more on the mirror plugin. 
 
-### How to extract information from the mirror registry (examples) 
-
-```
-oc mirror list operators --catalog registry.redhat.io/redhat/redhat-operator-index:v4.11
-
-oc mirror list releases --channel fast-4.11
-
-# Extract OCP version from the Release Image 
-
-oc adm release info -o template --template '{{.metadata.version}}' --insecure=true $BASTION_HOST:8443/poc-mirror/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
-
-# Find the image URL by logging into the registry with your browser, as above, after populating the registry.  
-```
 
 ### Generate the image set config file
 
 ```
-oc mirror init --registry $BASTION_HOST:8443/poc-mirror/mirror/oc-mirror-metadata > imageset-config-init.yaml
+oc mirror init --registry $REGISTRY_SERVER:8443/poc-mirror/mirror/oc-mirror-metadata > imageset-config-init.yaml  
 ```
 
 Edit the config file.  Here is an example:
@@ -174,16 +200,17 @@ kind: ImageSetConfiguration
 apiVersion: mirror.openshift.io/v1alpha2
 storageConfig:
   registry:
-    imageURL: $BASTION_HOST:8443/poc-mirror/mirror/oc-mirror-metadata
+    imageURL: $REGISTRY_SERVER:8443/poc-mirror/mirror/oc-mirror-metadata
     skipTLS: false
 mirror:
   platform:
     channels:
     - name: candidate-4.11
       minVersion: 4.11.0
-      maxVersion: 4.11.2
+#      maxVersion: 4.11.2
+      shortestPath: true 
       type: ocp
-    graph: true
+#    graph: true
   operators:
   - catalog: registry.redhat.io/redhat/redhat-operator-index:v4.11
     packages:
@@ -203,12 +230,33 @@ END
 
 See the reference list of operator names in the Appendix 
 
+See [this tool](https://access.redhat.com/labs/ocpupgradegraph/update_path?channel=stable-4.10&arch=x86_64&is_show_hot_fix=true&current_ocp_version=4.9.12&target_ocp_version=4.10.22) for all versions and upgrade paths.
+ 
+
 ### Mirror the content
 
 ```
-oc mirror --config=./imageset-config.yaml docker://$BASTION_HOST:8443/poc-mirror --dry-run 
+oc mirror --config=./imageset-config.yaml docker://$REGISTRY_SERVER:8443/poc-mirror --dry-run 
 # This will take some time!
 ```
+
+### Optional: How to extract information from the mirror registry (examples) 
+
+```
+oc mirror list operators --catalog registry.redhat.io/redhat/redhat-operator-index:v4.11
+
+oc mirror list releases --channel fast-4.11
+
+# Fetch release versions and channels: 
+oc mirror list operators --package rhacs-operator --catalog registry.redhat.io/redhat/redhat-operator-index:v4.11
+
+# Extract OCP version from the Release Image 
+
+oc adm release info -o template --template '{{.metadata.version}}' --insecure=true $REGISTRY_SERVER:8443/poc-mirror/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
+
+# Find the image URL by logging into the registry with your browser, as above, after populating the registry.  
+```
+
 
 ### Find the generated catalogSource & imageContentSourcePolicy in the "results-*" dir 
 
@@ -242,7 +290,7 @@ Example:
 ```
 ./openshift-installer version
 built from commit ddf29b4b5bdb297648ce1b71b916b8cc1212f19a
-release image $BASTION_HOST:8443/poc-mirror/openshift/release-images@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4
+release image $REGISTRY_SERVER:8443/poc-mirror/openshift/release-images@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4
 release architecture amd64
 ```
 - Note that the (dev preview) binary may be primed to install from 'openshift.org' (the dev registry).  If this is the case this needs to be changed to point to your mirrored registry using the "billi-release.sh" script in the Appendix. 
@@ -252,16 +300,22 @@ release architecture amd64
 #### Add the extra values in the install-config.yaml
 
 ```
-The pull secret for the Internet registry (see: $BASTION_HOST:8443 below, under pullSecret) 
+The pull secret for the Internet registry (see: $REGISTRY_SERVER:8443 below, under pullSecret) 
 The certificate (quay-rootCA/rootCA.pem)
 ```
 FIXME: Is this still needed? 
 
 ### Verify the release image in the registry 
 
+fetch the release image from the registry UI
+
+```
+RELEASE_IMAGE=sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844
+```
+
 ```
 oc adm release info -o template --template '{{.metadata.version}}' --insecure=true \
-$BASTION_HOST:8443/poc-mirror/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
+$REGISTRY_SERVER:8443/poc-mirror/openshift/release-images@$RELEASE_IMAGE; echo
 ```
 - Fetch the sha value from the Registry UI. The Release Image is usually in the "release-images' repo. 
 
@@ -285,10 +339,27 @@ Set the following fields:
 
 Get the mirror registry certificate from `quay-rootCA/rootCA.pem`
 
+ROOT_CA=`~/quay-root/quay-rootCA/rootCA.pem`
+SSH_PUB_KEY=`tail -1 ~/.ssh/authorized_keys`     # needed below 
+SSH_KEY-`cat ~/.ssh/id_rsa`
+
+
+Optional: Copy the ssh private key to the bastion 
+ 
+```
+scp ~/.ssh/id_rsa  user@bastion:.ssh/
+```
+
+Create a directory to hold the configurations 
+
+```
+mkdir cluster-manifests.src
+```
+
 Example:
 
 ```
-cat > install-config.yaml <<END
+cat > cluster-manifests.src/install-config.yaml <<END
 apiVersion: v1
 baseDomain: example.com
 compute:
@@ -335,43 +406,21 @@ platform:
 pullSecret: |
   {
     "auths": {
-      "$BASTION_HOST:8443": {
-        "auth": "aW5pdDo0MDNXXXXXXFmWTYYYYYYUXY4V0ZkQk5FazlEeUlubA=="
+      "$REGISTRY_SERVER:8443": {
+        "auth": "$REGISTRY_AUTH"
       }
     }
   }
 additionalTrustBundle: |
-  -----BEGIN CERTIFICATE-----
-  MIIDxzCCAq+gAwIBAgIUD6h49srl+AVZKBuOkFcJGSq5jxEwDQYJKoZIhvcNAQEL
-  BQAwZTELMAkGA1UEBhMCVVMxCzAJBgNVBAgMAlZBMREwDwYDVQQHDAhOZXcgWW9y
-  azENMAsGA1UECgwEUXVheTERMA8GA1UECwwIRGl2aXNpb24xFDASBgNVBAMMC2Jh
-  c3Rpb24ubGFuYYYYYYYYYYYYYYYYMjUyMFoXDTI1MDYxMjEyMjUyMFowZTELMAkG
-  A1UEBhMCVVMxCzAJBgNVBAgMAlZBMREwDwYDVQQHDAhOZXcgWW9yazENMAsGA1UE
-  CgwEUXVheTERMA8GA1UECwwIRGl2aXNpb24xFDASBgNVBAMMC2Jhc3Rpb24ubGFu
-  MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoN4BgJRbOOYICY/1R6EB
-  QVcGcNKdZAIrE96gHH0zRvI3viFKPtpC37zjgVIYZyJFNAAsqlWVqHnhnRunYc3j
-  iNSiAHIqnOs8ynfZM1xaCEGIuS8GH49k2x+A9YSB0N0e7pppGrNZ8773cKdHtuHB
-  QPt4ZLO1L9KeTQbSZWkacItBZB8zH66DXeLrl/EYnS38/YCbXYuNq1PEaj8fj59U
-  hsfK3mNzfj8XOIgLEZRIsXXXXXXXXXXXXZH0KrRMYzVn44R7OFmty/2k3Kf3scmn
-  KhDqtDeEBfjQXeUn0rlo3544Om4x44yBSc/+8euO1lrhpOz/9epdSBzASt2RsI72
-  xQIDAQABo28wbTALBgNVHQ8EBAMCAuQwEwYDVR0lBAwwCgYIKwYBBQUHAwEwFgYD
-  VR0RBA8wDYILYmFzdGlvbi5sYW4wEgYDVR0TAQH/BAgwBgEB/wIBATAdBgNVHQ4E
-  FgQUf3cDW/Bas95abk9FVk1hTRFQ6V8wDQYJKoZIhvcNAQELBQADggEBAIB+APnD
-  6rSHg5Rr6A5L+H047Q2128P3w7qscGAiZTJG7Mq4OzJc5Ww7gtJ7Ox5Pk/n/qnWS
-  FnKrpMRqyGICy7OJQ4FBHmY+OYCiv2D4UdbSD6Zk07xTClZheZhPkmofNTzLnxjf
-  6rZloYjpBbTFT4OtKTqqL+RNcGC0lhS9Uz3fdSVWUbrPBlKO82t9+ursRQl1jR4F
-  ntqUEJnGfkpADTzU49lXMrXqBrDKvOs4Z6ZUd4Z1g0rjqmjVDj4QMsocx0PaCjCP
-  0wpVBgDIWSLdZ4W2O3e3KXvDtWfVL0qX/cutG/uwdg543Dm9nRjCG2TXhHBpM/iZ
-  wlpL0ZqWXmp6w38=
-  -----END CERTIFICATE-----
+`echo "$ROOT_CA" | sed -e 's/^/  /'`
 sshKey: |
-  ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABXXXXXXXXXXXXXXXXXXXXXIFebRYnjXdsP3uex+Tti9g3WE+SriQhh9FcpkdZQkLV1nF0VaOKjVEF3lif7DeJfOlMwO0x8wLSqFUv94JccnlG8+Nwab+UJ3yinQXC3r1dJ330uoT44Qc0dHn8fiJm0jCDozcvVV9dPUOkONcGkBMWmZgxbjeBW1JgtM6t1NTB1Zu7yVpG1P+Ot4jlBxREqzGx/O3UGk97CJMncaT7wfgODovp0yo86lzc1UshChXYv6JeO360rmvILsmnOdZlzSVYiq+czSWztMDQMfT9fOCp8SZH1M2/puhRf+w7vcyAAgzF30BHYgU9CyIE/tkZ sbylo@ovpn-117-52.sin2.redhat.com
+  $SSH_PUB_KEY
 imageContentSources:
 - mirrors:
-  - $BASTION_HOST:8443/poc-mirror/openshift/release
+  - $REGISTRY_SERVER:8443/poc-mirror/openshift/release
   source: quay.io/openshift-release-dev/ocp-v4.0-art-dev
 - mirrors:
-  - $BASTION_HOST:8444/poc-mirror/openshift/release-images
+  - $REGISTRY_SERVER:8444/poc-mirror/openshift/release-images
   source: quay.io/openshift-release-dev/ocp-release
 END
 ```
@@ -388,7 +437,7 @@ To create agent-config.yaml, change the following fields:
 Example agent config file:
 
 ```
-cat > agent-config.yaml <<END
+cat > cluster-manifests.src/agent-config.yaml <<END
 apiVersion: v1alpha1
 kind: AgentConfig
 metadata:
@@ -415,6 +464,11 @@ hosts:
         config:
           server:
             - $DNS_SERVER
+      routes:
+        config:
+          - destination: 0.0.0.0/0
+            next-hop-address: 10.0.1.1
+            next-hop-interface: ens192
   - hostname: master2
     interfaces:
      - name: ens192
@@ -435,6 +489,11 @@ hosts:
         config:
           server:
             - $DNS_SERVER
+      routes:
+        config:
+          - destination: 0.0.0.0/0
+            next-hop-address: 10.0.1.1
+            next-hop-interface: ens192
   - hostname: master3
     interfaces:
      - name: ens192
@@ -455,6 +514,11 @@ hosts:
         config:
           server:
             - $DNS_SERVER
+      routes:
+        config:
+          - destination: 0.0.0.0/0
+            next-hop-address: 10.0.1.1
+            next-hop-interface: ens192
   - hostname: worker1
     interfaces:
      - name: ens192
@@ -475,6 +539,11 @@ hosts:
         config:
           server:
             - $DNS_SERVER
+      routes:
+        config:
+          - destination: 0.0.0.0/0
+            next-hop-address: 10.0.1.1
+            next-hop-interface: ens192
   - hostname: worker2
     interfaces:
      - name: ens192
@@ -495,7 +564,21 @@ hosts:
         config:
           server:
             - $DNS_SERVER 
+      routes:
+        config:
+          - destination: 0.0.0.0/0
+            next-hop-address: 10.0.1.1
+            next-hop-interface: ens192
 END
+```
+
+## Installation execution
+
+sudo dnf -y install nmstate
+
+```
+rm -rf cluster-manifests && cp -rp cluster-manifests.src cluster-manifests && \
+bin/openshift-install agent create image --log-level debug --dir cluster-manifests
 ```
 
 ## Disabling the default OperatorHub sources
