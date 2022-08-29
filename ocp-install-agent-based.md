@@ -3,21 +3,26 @@
 ### Prerequisites 
 
 - Access to Bastion (Staging Utility VM) 
-- RHEL Base installation, registered and up-to-date (yum update) 
+- RHEL 8 Minimal installation, registered and up-to-date (yum update) 
+- sudo should be configured  
+
+If not already, register the host 
 
 ```
 subscription-manager register --username=my@email.com --password=xxyyyzzz
 ```
 
-If there is no DNS, set up DNS on this server 
+If there is no DNS, set up DNS on this server and create an A record for the
+congtainer mirror registry, e.g. mirror.example.com, pointing to this host's IP address. 
+Or use localhost for now. 
 
-
-Set up (or check) the proxy configuration: 
+If not already, set up the proxy configuration: 
 
 ```
 export NO_PROXY=<local_registry_host_name>
 export HTTP_PROXY=<proxy server IP>:8080
 export HTTPS_PROXY=<proxy server IP>:8080
+
 # Add these to ~/bashrc 
 ```
 
@@ -40,10 +45,11 @@ proxy_password = proxy_password
 Set some env. variables 
 
 ```
-DNS_SERVER=10.0.1.8      # Set to IP of DNS server
+DNS_SERVER=10.0.1.8           # Set to IP of DNS server
 REGISTRY_SERVER=bastion.lan   # Set to hostname of the mirror server 
 ```
-Add these to ~/.bashrc 
+
+Add the above to ~/.bashrc 
 
 
 ## Install tools
@@ -65,7 +71,7 @@ Fetch your pull-secret and store in a pull-secret.txt file.  If needed, ask the 
 
 https://console.redhat.com/openshift/install/pull-secret 
 
-### Yum
+Yum
 
 ```
 sudo yum install podman httpd-tools openssl
@@ -78,9 +84,9 @@ sudo yum install tmux net-tools
 ```
 
 
-## Install Mirror Registry 
+## Mirror Registry 
 
-## Install mirror script
+### Install mirror script
 
 Ensure enough storage is mounted (500GB+), e.g. to /mnt, to store the images 
 
@@ -89,7 +95,7 @@ curl -sL https://developers.redhat.com/content-gateway/rest/mirror/pub/openshift
 ```
 
 
-## Install Mirror Registry 
+### Install Mirror Registry 
 
 Note: Be sure to add the folowing to /etc/hosts, otherwise you might see a "segmentation violation":
 
@@ -97,17 +103,20 @@ Note: Be sure to add the folowing to /etc/hosts, otherwise you might see a "segm
 127.0.0.1   <output of hostname command>
 ```
 
+Install the mirror registry 
+
 ```
-###sudo ./mirror-registry install   --quayHostname $REGISTRY_SERVER   --quayRoot /mnt/quay-root 
-mkdir $HOME/quay 
+mkdir $HOME/quay-root.    # or store the registry data in a location with enough space
 sudo ./mirror-registry install   --quayHostname $REGISTRY_SERVER --quayRoot $HOME/quay-root
 ```
 
-Note down username “init” and auto generated password.
+Note down username “init” and the auto generated password.
 
 ```	
 REGISTRY_PW='xxxxxxxyyyyyyyyyyzzzzzzzzzzz'
+# Add this to ~/.bashrc 
 ```
+
 
 Note, how to remove the registry again, if needed
 
@@ -132,7 +141,7 @@ podman login --authfile pull-secret.txt \
   --tls-verify=false
 ```
 
-Generate the base64-encoded username and password.  Ensure it's in the pull-secret
+Generate the base64-encoded username and password.  Ensure it's in the pull-secret file. 
 
 ```
 echo -n init:$REGISTRY_PW | base64 -w0
@@ -142,10 +151,11 @@ REGISTRY_AUTH=`echo -n init:$REGISTRY_PW | base64 -w0`
 Generate yaml file (optional) 
 
 ```
-cat ./pull-secret.txt | jq .  > <path>/<pull_secret_file_in_json>
+cat ./pull-secret.txt | jq .  > pull-secret.json 
 ```
 
-Save the file as:
+Save the pull-seceret file
+
 ```
 mkdir ~/.config/containers 
 cp pull-secret.txt  ~/.config/containers/auth.json
@@ -192,7 +202,7 @@ See [this blog](https://cloud.redhat.com/blog/mirroring-openshift-registries-the
 oc mirror init --registry $REGISTRY_SERVER:8443/poc-mirror/mirror/oc-mirror-metadata > imageset-config-init.yaml  
 ```
 
-Edit the config file.  Here is an example:
+Edit the config file or use this example:
 
 ```
 cat > imageset-config.yaml <<END
@@ -254,11 +264,11 @@ oc mirror list operators --package rhacs-operator --catalog registry.redhat.io/r
 
 oc adm release info -o template --template '{{.metadata.version}}' --insecure=true $REGISTRY_SERVER:8443/poc-mirror/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
 
-# Find the image URL by logging into the registry with your browser, as above, after populating the registry.  
+# Find the image sha by logging into the registry with your browser, as above, after populating the registry and going to /poc-mirror/release-images -> Tags. 
 ```
 
 
-### Find the generated catalogSource & imageContentSourcePolicy in the "results-*" dir 
+Find the generated catalogSource & imageContentSourcePolicy in the "results-*" dir 
 
 ```
 ls -ltr oc-mirror-workspace/ | tail -1    # Find the newest dir
@@ -271,12 +281,11 @@ Verify that the Operators are available in the OCP console (how to do this on th
 
 # POC Phase 2
 
-
 ### Install OpenShift using agent-based installer binary 
 
 This is based on the blog: https://github.com/schmaustech/agent-installer-blog/blob/main/README.md 
 
-The blog describes how to build the binary. 
+The blog describes how to fetch (or build) the binary. 
 
 
 ### Get the openshift-install binary that is agant-based capable 
@@ -726,4 +735,113 @@ chmod +x <virtctl-file-name>
 Download the virtctl client by using the link listed for your distribution.
 
 
+
+### Script to change the release image URL and OCP version in the openshift-install binary
+
+
+```
+#!/usr/bin/env bash
+
+function verify_if_release_image_exists() {
+    local release_image=$1
+    if [ ! "$(podman manifest inspect ${release_image})" ]; then
+        echo "Cannot download image ${release_image}"
+    fi
+}
+
+function clone_agent_repo() {
+    
+    local commit=$1
+
+    if [[ ! -d "installer" ]]; then 
+        git clone https://github.com/openshift/installer.git
+    fi
+    
+    if [[ ! -z "${commit}" ]]; then
+        echo "Building from commit $commit"
+    fi
+
+    pushd installer
+    git checkout $commit
+    popd
+}
+
+function build_agent_installer() {
+    pushd installer
+    # Steve
+    export GOCACHE=/mnt/tmp/.cache/go-build
+    hack/build.sh
+    popd
+}
+
+function patch_openshift_install_release_version() {
+    local version=$1
+
+    local res=$(grep -oba ._RELEASE_VERSION_LOCATION_.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX openshift-install)
+    local location=${res%%:*}
+
+    # If the release marker was found then it means that the version is missing
+    if [[ ! -z ${location} ]]; then
+        echo "Patching openshift-install with version ${version}"
+        printf "${version}\0" | dd of=openshift-install bs=1 seek=${location} conv=notrunc &> /dev/null 
+    else
+        echo "Version already patched"
+    fi
+}
+
+function patch_openshift_install_release_image() {
+    local image=$1
+
+    local res=$(grep -oba ._RELEASE_IMAGE_LOCATION_.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX openshift-install)
+    local location=${res%%:*}
+
+    # If the release marker was found then it means that the image is missing
+    if [[ ! -z ${location} ]]; then
+        echo "Patching openshift-install with image ${image}"
+        printf "${image}\0" | dd of=openshift-install bs=1 seek=${location} conv=notrunc &> /dev/null 
+    else
+    	local res=$(grep -oba bastion.lan:8443/steve openshift-install)
+    	local location=${res%%:*}
+    	if [[ ! -z ${location} ]]; then
+        	echo "Patching openshift-install with image ${image}"
+        	printf "${image}\0" | dd of=openshift-install bs=1 seek=${location} conv=notrunc &> /dev/null 
+    	else
+       		echo "Image already patched"
+	fi
+    fi
+}
+
+function complete_release() {
+    echo 
+    echo "BILLI installer release completed"
+    echo 
+
+    ./openshift-install version
+}
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: billi-release2.sh <release image>"
+    echo "[Arguments]"
+    echo "      <release image>     The desired OpenShift release image location"
+    echo
+    echo "example: ./billi-release.sh quay.io/openshift-release-dev/ocp-release@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4"
+
+    exit 1
+fi
+
+#commit=$1
+release_image=$1
+release_version=$(oc adm release info -o template --template '{{.metadata.version}}' --insecure=true ${release_image})
+
+# Steve
+[ ! "$release_version" ] && echo "Cannot fetch release version from release image" && exit 1
+echo "Found release version = $release_version"
+
+verify_if_release_image_exists $release_image
+#clone_agent_repo $commit
+#build_agent_installer
+patch_openshift_install_release_version $release_version
+patch_openshift_install_release_image $release_image
+complete_release
+```
 
