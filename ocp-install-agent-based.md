@@ -350,6 +350,18 @@ Optional: Copy the ssh private key to the bastion
 scp ~/.ssh/id_rsa  user@bastion:.ssh/
 ```
 
+Set up ssh config
+
+```
+cat > ~/.ssh/config <<END
+StrictHostKeyChecking no
+UserKnownHostsFile=/dev/null
+ConnectTimeout=15
+END
+
+chmod 600 ~/.ssh/config
+```
+
 Create a directory to hold the configurations 
 
 ```
