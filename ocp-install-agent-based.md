@@ -25,6 +25,8 @@ export HTTPS_PROXY=<proxy server IP>:8080
 
 # Add these to ~/bashrc 
 ```
+Note: If you use the above proxy settings and you see "Internal Server" errors, then be sure to add the endpoint hostnames to the `NO_PROXY` env var. 
+
 
 Note: If the system is behind an HTTP proxy, add the details in /etc/rhsm/rhsm.conf as follows (see: https://access.redhat.com/solutions/65300):
 
@@ -94,6 +96,7 @@ Ensure enough storage is mounted (500GB+), e.g. to /mnt, to store the images
 curl -sL https://developers.redhat.com/content-gateway/rest/mirror/pub/openshift-v4/clients/mirror-registry/latest/mirror-registry.tar.gz -o - | tar xzvf -
 ```
 
+See: https://github.com/quay/mirror-registry/issues/60 
 
 ### Install Mirror Registry 
 
@@ -198,6 +201,8 @@ See [this blog](https://cloud.redhat.com/blog/mirroring-openshift-registries-the
 
 ### Generate the image set config file
 
+Note: be sure to have the correct access to both/all registries: username/password/pull secrets/certs.  Note: but in oc-mirror ... still requires file: `~/.docker/config.json` 
+
 ```
 oc mirror init --registry $REGISTRY_SERVER:8443/poc-mirror/mirror/oc-mirror-metadata > imageset-config-init.yaml  
 ```
@@ -255,14 +260,32 @@ oc mirror --config=./imageset-config.yaml docker://$REGISTRY_SERVER:8443/poc-mir
 ```
 oc mirror list operators --catalog registry.redhat.io/redhat/redhat-operator-index:v4.11
 
+OR
+
+oc mirror list operators --catalog bastion.lan:8443/steve/redhat/redhat-operator-index@sha256:f07deab29ed8694391f999b9da409d58fae02b66029306e2101fe868944de648
+
 oc mirror list releases --channel fast-4.11
 
-# Fetch release versions and channels: 
-oc mirror list operators --package rhacs-operator --catalog registry.redhat.io/redhat/redhat-operator-index:v4.11
+
+```
+Fetch release versions and channels: 
+
+oc mirror list operators --package advanced-cluster-management --catalog registry.redhat.io/redhat/redhat-operator-index:v4.11             
+NAME                         DISPLAY NAME                                DEFAULT CHANNEL                                                                                  
+advanced-cluster-management  Advanced Cluster Management for Kubernetes  release-2.5
+PACKAGE                      CHANNEL      HEAD
+advanced-cluster-management  release-2.5  advanced-cluster-management.v2.5.1
+```
 
 # Extract OCP version from the Release Image 
 
 oc adm release info -o template --template '{{.metadata.version}}' --insecure=true $REGISTRY_SERVER:8443/poc-mirror/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
+
+List Operators that are available to this cluster: 
+
+```
+oc get packagemanifests -n openshift-marketplace
+```
 
 # Find the image sha by logging into the registry with your browser, as above, after populating the registry and going to /poc-mirror/release-images -> Tags. 
 ```
@@ -277,6 +300,17 @@ Later, the yaml config in this dir will be applied to the OCP cluster.
 
 
 Verify that the Operators are available in the OCP console (how to do this on the CLI?)
+
+Only if needed: 
+Need to annotate MCN as there's a doc bug. 
+
+```
+apiVersion: operator.open-cluster-management.io/v1
+kind: MultiClusterHub
+metadata:
+  annotations:
+    installer.open-cluster-management.io/mce-subscription-spec: '{"source": "redhat-operator-index"}'
+```
 
 
 # POC Phase 2
@@ -595,7 +629,9 @@ END
 
 ## Installation execution
 
-sudo dnf -y install nmstate
+```
+sudo dnf -y install nmstate.   # Needed by "openshift-install agent" 
+```
 
 ```
 rm -rf cluster-manifests && cp -rp cluster-manifests.src cluster-manifests && \
