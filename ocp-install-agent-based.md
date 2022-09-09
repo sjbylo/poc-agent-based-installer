@@ -1,34 +1,38 @@
-# POC Phase 1
+# Phase 1 - Set up the Mirror Registry
 
 ### Prerequisites 
 
-- Access to Bastion (Staging Utility VM) 
+- Access to Bastion ("Staging" or "Utility" VM) 
 - RHEL 8 Minimal installation, registered and up-to-date (yum update) 
 - sudo should be configured  
 
-If not already, register the host 
+If not already, register the host:
 
 ```
 subscription-manager register --username=my@email.com --password=xxyyyzzz
 ```
 
+### DNS
+
 If there is no DNS, set up DNS on this server and create an A record for the
-congtainer mirror registry, e.g. mirror.example.com, pointing to this host's IP address. 
+congtainer mirror registry, e.g. mirror.poc.local, pointing to this host's IP address.  See "Example setting up DNS zone" in the Appendix. 
 Or use localhost for now. 
 
-If not already, set up the proxy configuration: 
+
+### Proxy
+
+If the system is behind an HTTP proxy set up the proxy configuration: 
 
 ```
-export NO_PROXY=<local_registry_host_name>
+export NO_PROXY=bastion.lan,api.ocp.lan,apps.ocp.lan
 export HTTP_PROXY=<proxy server IP>:8080
 export HTTPS_PROXY=<proxy server IP>:8080
-
 # Add these to ~/bashrc 
 ```
-Note: If you use the above proxy settings and you see "Internal Server" errors, then be sure to add the endpoint hostnames to the `NO_PROXY` env var. 
 
+Note: If you use the above proxy settings and you see "Internal Server" errors, be sure to append the endpoint hostnames to the `NO_PROXY` env var. 
 
-Note: If the system is behind an HTTP proxy, add the details in /etc/rhsm/rhsm.conf as follows (see: https://access.redhat.com/solutions/65300):
+Note: add the details in /etc/rhsm/rhsm.conf as follows (see: https://access.redhat.com/solutions/65300):
 
 ```
 # an http proxy server to use (enter server FQDN)
@@ -44,36 +48,7 @@ proxy_user = proxy_username
 proxy_password = proxy_password
 ```
 
-Set some env. variables 
-
-```
-DNS_SERVER=10.0.1.8           # Set to IP of DNS server
-REGISTRY_SERVER=bastion.lan   # Set to hostname of the mirror server 
-```
-
-Add the above to ~/.bashrc 
-
-
-## Install tools
-
-### oc
-
-```
-# All commands are run as user (non-root) unless otherwise stated 
-curl -s https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz -o - | sudo tar xzvf - -C /usr/local/bin oc
-
-oc version
-Client Version: 4.11.0
-Kustomize Version: v4.5.4
-```
-
-### Configure pull secrets 
-
-Fetch your pull-secret and store in a pull-secret.txt file.  If needed, ask the customer to do this with their Red Hat account. 
-
-https://console.redhat.com/openshift/install/pull-secret 
-
-Yum
+### Yum install
 
 ```
 sudo yum install podman httpd-tools openssl
@@ -86,11 +61,43 @@ sudo yum install tmux net-tools
 ```
 
 
+### Environment variables
+
+Set some env. variables 
+
+```
+DNS_SERVER=10.0.1.8           # Set to IP of DNS server
+REGISTRY_SERVER=bastion.lan   # Set to hostname of the mirror server 
+```
+
+Add the above to `~/.bashrc` 
+
+
+## Install tools
+
+### Install oc CLI
+
+```
+# All commands are run as user (non-root) unless otherwise stated 
+curl -s https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz -o - | sudo tar xzvf - -C /usr/local/bin oc
+
+oc version
+Client Version: 4.11.0
+Kustomize Version: v4.5.4
+```
+
+### Configure pull secrets 
+
+Fetch your pull secret and store in a pull-secret.txt file.  If needed, ask the customer to do this with their Red Hat account. 
+
+https://console.redhat.com/openshift/install/pull-secret 
+
+
 ## Mirror Registry 
 
 ### Install mirror script
 
-Ensure enough storage is mounted (500GB+), e.g. to /mnt, to store the images 
+Ensure enough storage is mounted (300GB+), e.g. to /mnt, to store the images 
 
 ```
 curl -sL https://developers.redhat.com/content-gateway/rest/mirror/pub/openshift-v4/clients/mirror-registry/latest/mirror-registry.tar.gz -o - | tar xzvf -
@@ -100,7 +107,7 @@ See: https://github.com/quay/mirror-registry/issues/60
 
 ### Install Mirror Registry 
 
-Note: Be sure to add the folowing to /etc/hosts, otherwise you might see a "segmentation violation":
+Note: Be sure to add the folowing to /etc/hosts, otherwise you might see a "_segmentation violation_" error:
 
 ```
 127.0.0.1   <output of hostname command>
@@ -127,7 +134,7 @@ Note, how to remove the registry again, if needed
 sudo ./mirror-registry uninstall --quayRoot $HOME/quay-root --autoApprove
 ```
 
-### Set up registry root certs
+### Registry root certs
 
 ```
 sudo cp $HOME/quay-root/quay-rootCA/rootCA* /etc/pki/ca-trust/source/anchors/ -v
@@ -163,9 +170,12 @@ Save the pull-seceret file
 mkdir ~/.config/containers 
 cp pull-secret.txt  ~/.config/containers/auth.json
 
-#mkdir ~/.docker    # may not be needed 
-#cp pull-secret.txt  ~/.docker/config.json
+mkdir ~/.docker    # may not be needed 
+cp pull-secret.txt  ~/.docker/config.json
 ```
+
+Both of these files are needed! 
+
 
 ### Test registry is up
 
@@ -173,15 +183,11 @@ cp pull-secret.txt  ~/.config/containers/auth.json
 curl -k https://$REGISTRY_SERVER:8443/health/instance
 ```
 
-### Log into Quay UI with
+### Log into the Quay UI with the created password (see xabove) 
 
 ```
 https://$REGISTRY_SERVER:8443/ 
 ```
-
-### Set up environment variables
-
-TBD 
 
 ## Populate the registry 
 
@@ -313,7 +319,7 @@ metadata:
 ```
 
 
-# POC Phase 2
+# Phase 2 - Install OpenShift 
 
 ### Install OpenShift using agent-based installer binary 
 
@@ -322,9 +328,9 @@ This is based on the blog: https://github.com/schmaustech/agent-installer-blog/b
 The blog describes how to fetch (or build) the binary. 
 
 
-### Get the openshift-install binary that is agant-based capable 
+### Get the openshift-install binary that is `agant-based` capable 
 
-Recommend to build the binary in advance.  Follow the blog (note that 6GB of RAM is needed to build the binary!).  
+Recommend to build the binary in advance.  Follow the blog (note that 6GB of RAM is needed to build the binary!)  
 
 Check which OCP release & OCP version image the openshift-install binary is configured for. 
 
@@ -333,24 +339,25 @@ Example:
 ```
 ./openshift-installer version
 built from commit ddf29b4b5bdb297648ce1b71b916b8cc1212f19a
-release image $REGISTRY_SERVER:8443/poc-mirror/openshift/release-images@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4
+release image bastion.lan:8443/poc-mirror/openshift/release-images@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4
 release architecture amd64
 ```
 - Note that the (dev preview) binary may be primed to install from 'openshift.org' (the dev registry).  If this is the case this needs to be changed to point to your mirrored registry using the "billi-release.sh" script in the Appendix. 
 
 
-
 #### Add the extra values in the install-config.yaml
 
 ```
-The pull secret for the Internet registry (see: $REGISTRY_SERVER:8443 below, under pullSecret) 
+The pull secret for the Internet registry (see: bastion.lan:8443 below, under pullSecret) 
 The certificate (quay-rootCA/rootCA.pem)
 ```
-FIXME: Is this still needed? 
+
+
 
 ### Verify the release image in the registry 
 
-fetch the release image from the registry UI
+Fetch the release image SHA ID from the registry UI and set the env. variable.
+It can be found in the UI e.g. under `/poc-mirror/openshift/release-images:v4.11` 
 
 ```
 RELEASE_IMAGE=sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844
@@ -367,9 +374,9 @@ $REGISTRY_SERVER:8443/poc-mirror/openshift/release-images@$RELEASE_IMAGE; echo
 
 ### Generate the ISO boot image
 
-Boot each type of node to determine:
-- Primary interface name, e.g. ens192
-- Primary mac address 
+First, boot each type of node in your env. to determine:
+- Primary NIC name, e.g. ens192
+- Primary NIC mac address 
 
 Use the network interface name and its mac address to configure the install-config.yaml file
 
@@ -380,7 +387,7 @@ Set the following fields:
 - additionalTrustBundle
 - imageContentSources 
 
-Get the mirror registry certificate from `quay-rootCA/rootCA.pem`
+Get the mirror registry certificate from `quay-rootCA/rootCA.pem` in Quay's data dir. 
 
 ROOT_CA=`~/quay-root/quay-rootCA/rootCA.pem`
 SSH_PUB_KEY=`tail -1 ~/.ssh/authorized_keys`     # needed below 
@@ -400,12 +407,13 @@ cat > ~/.ssh/config <<END
 StrictHostKeyChecking no
 UserKnownHostsFile=/dev/null
 ConnectTimeout=15
+ServerAliveInterval=120
 END
 
 chmod 600 ~/.ssh/config
 ```
 
-Create a directory to hold the configurations 
+Create a directory to hold the configuration files (install-config.yaml and agent-config.yaml)
 
 ```
 mkdir cluster-manifests.src
@@ -482,12 +490,14 @@ END
   
 To create agent-config.yaml, change the following fields:
 
-- rendezvousIP
+- rendezvousIP 
 - hosts[].interfaces.macAddress
 - hosts[].interfaces.mac-address
 - hosts[].networkConfig.interfaces.name
 - hosts[].networkConfig.interfaces.ipv4.address[0].prefix-length 
 - hosts[].networkConfig.interfaces.dns-resolver.config.server[]
+  
+The `rendezvousIP` determines where the Assisted Installer Service will run. 
   
 Example agent config file:
 
@@ -630,17 +640,22 @@ END
 ## Installation execution
 
 ```
-sudo dnf -y install nmstate.   # Needed by "openshift-install agent" 
+sudo dnf -y install nmstate    # Needed by "openshift-install agent" 
 ```
+
+Generate the book image iso. 
 
 ```
 rm -rf cluster-manifests && cp -rp cluster-manifests.src cluster-manifests && \
 bin/openshift-install agent create image --log-level debug --dir cluster-manifests
 ```
 
+Now, boot all the nodes using the created agent.iso image found in cluster-manifests/.
+
+
 ## Disabling the default OperatorHub sources
 
-In a restricted network environment, you must disable the default catalogs as a cluster administrator. 
+After installation, in a restricted network environment, you must disable the default catalogs as a cluster administrator. 
 
 ```
 oc patch OperatorHub cluster --type json -p '[{"op": "add", "path": "/spec/disableAllDefaultSources", "value": true}]'
@@ -649,12 +664,15 @@ oc patch OperatorHub cluster --type json -p '[{"op": "add", "path": "/spec/disab
 
 ### Apply the catalogSource & imageContentSourcePolicy yaml
 
-The generated yaml files are found under the `oc-mirror-workspace` dir which was generated by the "oc mirror" command above. 
+The generated yaml files are found under the `oc-mirror-workspace` dir which was generated by the "oc mirror" command above in phase 1. 
 
 Example: 
 ```
 oc apply -f oc-mirror-workspace/results-1661347016 
 ```
+
+After applying, the OperatorHub in the OCP Console should show some available Operators which are served from the internal mirror server. 
+
 
 ## Appendix 
 
@@ -879,5 +897,148 @@ verify_if_release_image_exists $release_image
 patch_openshift_install_release_version $release_version
 patch_openshift_install_release_image $release_image
 complete_release
+```
+
+
+### Example ImageContentSourcePolicy that works
+
+```
+apiVersion: operator.openshift.io/v1alpha1
+kind: ImageContentSourcePolicy
+metadata:
+  labels:
+    operators.openshift.org/catalog: "true"
+  name: operator-0
+spec:
+  repositoryDigestMirrors:
+  - mirrors:
+    - bastion.lan:8443/steve/rhceph
+    source: registry.redhat.io/rhceph
+  - mirrors:
+    - bastion.lan:8443/steve/openshift4
+    source: registry.redhat.io/openshift4
+  - mirrors:
+    - bastion.lan:8443/steve/rhel8
+    source: registry.redhat.io/rhel8
+  - mirrors:
+    - bastion.lan:8443/steve/redhat
+    source: registry.redhat.io/redhat
+  - mirrors:
+    - bastion.lan:8443/steve/rhacm2-tech-preview
+    source: registry.redhat.io/rhacm2-tech-preview
+  - mirrors:
+    - bastion.lan:8443/steve/multicluster-engine
+    source: registry.redhat.io/multicluster-engine
+  - mirrors:
+    - bastion.lan:8443/steve/odf4
+    source: registry.redhat.io/odf4
+  - mirrors:
+    - bastion.lan:8443/steve/rhacm2
+    source: registry.redhat.io/rhacm2
+```
+
+### Example setting up DNS zone
+
+Steps from https://www.linuxtechi.com/setup-bind-server-centos-8-rhel-8/ 
+
+```
+LOCAL_DOMAIN=poc.local
+LOCAL_CIDR=192.168.0.0/24
+LOCAL_REVERSE=0.168.192       # if needed 
+NTP_IP=192.168.0.10 
+DNS_IP=192.168.0.20
+MIRROR_IP=192.68.0.30
+```
+
+Install Bind 
+
+```
+sudo dnf install bind bind-utils -y 
+sudo systemctl start named
+sudo systemctl enable named
+sudo systemctl status named
+```
+
+Set up the `allow` confg 
+
+```
+cp /etc/named.conf  /etc/named.bak
+
+# In the conf file, comment out
+sed -i -e "s#listen-on port 53.*#// \1#" /etc/named.conf
+sed -i -e "s#listen-on-v6 port 53.*#// \1#" /etc/named.conf
+
+// listen-on port 53 { 127.0.0.1; }; 
+// listen-on-v6 port 53 { ::1; };
+# and
+
+allow-query { localhost; $LOCAL_CIDR; };   # <= your subnet 
+```
+
+Define the forward zone 
+
+```
+cat >> /etc/named.conf <<END
+
+//forward zone
+zone "$LOCAL_DOMAIN" IN {
+     type master;
+     file "$LOCAL_DOMAIN.db";
+     allow-update { none; };
+     allow-query { any; };
+};
+
+//backward zone
+zone "$LOCAL_REVERSE.in-addr.arpa" IN {
+     type master;
+     file "$LOCAL_DOMAIN.rev";
+     allow-update { none; };
+     allow-query { any; };
+};
+END
+```
+
+Set up the zone config 
+
+```
+
+$TTL 86400
+@ IN SOA dns-primary.$LOCAL_DOMAIN. admin.$LOCAL_DOMAIN. (
+                                                2020011800 ;Serial
+                                                3600 ;Refresh
+                                                1800 ;Retry
+                                                604800 ;Expire
+                                                86400 ;Minimum TTL
+)
+
+;Name Server Information
+@ IN NS dns-primary.$LOCAL_DOMAIN.
+
+;IP Address for Name Server
+dns-primary IN A $192.168.0.20
+
+;A Record for the following Host name
+dns   IN   A  $DNS_IP
+ntp   IN   A  $NTP_IP
+mirror IN  A  $MIRROR_IP 
+
+END
+```
+
+Finally
+
+```
+sudo chown named:named /var/named/linuxtechi.local.db
+sudo chown named:named /var/named/linuxtechi.local.rev
+
+# Verify 
+sudo named-checkconf
+named-checkzone $LOCAL_DOMAIN /var/named/$LOCAL_DOMAIN.db
+# named-checkzone 192.168.43.35 /var/named/linuxtechi.local.rev
+
+systemctl restart named
+
+sudo firewall-cmd  --add-service=dns --zone=public  --permanent
+sudo firewall-cmd --reload
 ```
 
