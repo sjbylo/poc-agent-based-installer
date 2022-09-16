@@ -104,8 +104,6 @@ Ensure enough storage is mounted (300GB+), e.g. to /mnt, to store the images
 curl -sL https://developers.redhat.com/content-gateway/rest/mirror/pub/openshift-v4/clients/mirror-registry/latest/mirror-registry.tar.gz -o - | tar xzvf -
 ```
 
-See: https://github.com/quay/mirror-registry/issues/60 
-
 ### Install Mirror Registry 
 
 Note: Be sure to add the folowing to /etc/hosts, otherwise you might see a "_segmentation violation_" error:
@@ -113,6 +111,8 @@ Note: Be sure to add the folowing to /etc/hosts, otherwise you might see a "_seg
 ```
 127.0.0.1   <output of hostname command>
 ```
+
+See [this page on the issue](https://github.com/quay/mirror-registry/issues/60)
 
 Install the mirror registry 
 
@@ -184,7 +184,7 @@ Both of these files are needed!
 curl -k https://$REGISTRY_SERVER:8443/health/instance
 ```
 
-### Log into the Quay UI with the created password (see xabove) 
+### Log into the Quay UI with the created password (see above) 
 
 ```
 https://$REGISTRY_SERVER:8443/ 
@@ -1069,4 +1069,24 @@ exit
 Connect in the usual way to the server.  Log in with a user / password. 
 
 
+### Configure tmux
+
+```
+cat > ~/.tmux.conf <<END
+# remap prefix from 'C-b' to 'C-a'
+unbind C-b
+set-option -g prefix C-a
+bind-key C-a send-prefix
+
+bind j resize-pane -D 5
+bind k resize-pane -U 5
+bind h resize-pane -L 10
+bind l resize-pane -R 10
+
+#set -g mode-mouse on 
+#set -g mouse-resize-pane on
+
+bind-key R source-file ~/.tmux.conf \; display-message "source-file done"
+END 
+```
 
