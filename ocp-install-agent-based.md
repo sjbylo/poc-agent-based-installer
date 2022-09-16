@@ -32,7 +32,7 @@ export HTTPS_PROXY=<proxy server IP>:8080
 
 Note: If you use the above proxy settings and you see "Internal Server" errors, be sure to append the endpoint hostnames to the `NO_PROXY` env var. 
 
-Note: add the details in /etc/rhsm/rhsm.conf as follows (see: https://access.redhat.com/solutions/65300):
+Note: add the details in `/etc/rhsm/rhsm.conf` as follows (see: https://access.redhat.com/solutions/65300):
 
 ```
 # an http proxy server to use (enter server FQDN)
@@ -51,6 +51,7 @@ proxy_password = proxy_password
 ### Yum install
 
 ```
+dnf repolist
 sudo yum install podman httpd-tools openssl
 ```
 
@@ -195,6 +196,8 @@ https://$REGISTRY_SERVER:8443/
 
 #### Install oc mirror plugin 
 
+See: https://github.com/openshift/oc-mirror 
+
 ```
 curl -s -o - https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/oc-mirror.tar.gz | \
 sudo tar x -C /usr/local/bin -vzf - oc-mirror && \
@@ -272,6 +275,8 @@ oc mirror list operators --catalog bastion.lan:8443/steve/redhat/redhat-operator
 
 oc mirror list releases --channel fast-4.11
 
+# Extract binary from release (example) 
+oc adm release extract --registry-config "pull-secret.json" --command=openshift-baremetal-install --to "/usr/local/bin/" $VERSION
 
 ```
 Fetch release versions and channels: 
@@ -1041,4 +1046,27 @@ systemctl restart named
 sudo firewall-cmd  --add-service=dns --zone=public  --permanent
 sudo firewall-cmd --reload
 ```
+
+### Configure XRDP for Remote Desktop access 
+
+See: https://linuxconfig.org/how-to-work-with-dnf-package-groups 
+
+```
+sudo -i 
+dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+
+dnf groupinstall "Server with GUI" -y 
+
+systemctl start xrdp
+systemctl status xrdp
+systemctl enable xrdp
+
+firewall-cmd --permanent --add-port=3389/tcp
+firewall-cmd --reload
+exit 
+```
+
+Connect in the usual way to the server.  Log in with a user / password. 
+
+
 
