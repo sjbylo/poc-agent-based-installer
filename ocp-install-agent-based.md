@@ -151,6 +151,7 @@ podman login --authfile pull-secret.txt \
   $REGISTRY_SERVER:8443 \
   --tls-verify=false
 ```
+This will create the file pull-secret.txt with the needed pull secret. 
 
 Generate the base64-encoded username and password.  Ensure it's in the pull-secret file. 
 
@@ -172,7 +173,7 @@ mkdir ~/.config/containers
 cp pull-secret.txt  ~/.config/containers/auth.json
 
 mkdir ~/.docker    # may not be needed 
-cp pull-secret.txt  ~/.docker/config.json
+cp pull-secret.txt  ~/.docker/config.json.   # Needed by "oc mirror" 
 ```
 
 Both of these files are needed! 
@@ -187,7 +188,7 @@ curl -k https://$REGISTRY_SERVER:8443/health/instance
 ### Log into the Quay UI with the created password (see above) 
 
 ```
-https://$REGISTRY_SERVER:8443/ 
+echo https://$REGISTRY_SERVER:8443/ 
 ```
 
 ## Populate the registry 
@@ -199,7 +200,7 @@ https://$REGISTRY_SERVER:8443/
 See: https://github.com/openshift/oc-mirror 
 
 ```
-curl -s -o - https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/oc-mirror.tar.gz | \
+curl -L -s -o - https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/oc-mirror.tar.gz | \
 sudo tar x -C /usr/local/bin -vzf - oc-mirror && \
 sudo chmod +x /usr/local/bin/oc-mirror
 
@@ -213,7 +214,7 @@ See [this blog](https://cloud.redhat.com/blog/mirroring-openshift-registries-the
 Note: be sure to have the correct access to both/all registries: username/password/pull secrets/certs.  Note: but in oc-mirror ... still requires file: `~/.docker/config.json` 
 
 ```
-oc mirror init --registry $REGISTRY_SERVER:8443/poc-mirror/mirror/oc-mirror-metadata > imageset-config-init.yaml  
+oc mirror init --registry $REGISTRY_SERVER:8443/ocp4/openshift4/mirror/oc-mirror-metadata > imageset-config-init.yaml  
 ```
 
 Edit the config file or use this example:
@@ -224,7 +225,7 @@ kind: ImageSetConfiguration
 apiVersion: mirror.openshift.io/v1alpha2
 storageConfig:
   registry:
-    imageURL: $REGISTRY_SERVER:8443/poc-mirror/mirror/oc-mirror-metadata
+    imageURL: $REGISTRY_SERVER:8443/ocp4/openshift4/mirror/oc-mirror-metadata
     skipTLS: false
 mirror:
   platform:
@@ -260,8 +261,9 @@ See [this tool](https://access.redhat.com/labs/ocpupgradegraph/update_path?chann
 ### Mirror the content
 
 ```
-oc mirror --config=./imageset-config.yaml docker://$REGISTRY_SERVER:8443/poc-mirror --dry-run 
+oc mirror --config=./imageset-config.yaml docker://$REGISTRY_SERVER:8443 --dry-run 
 # This will take some time!
+# Note that this command requires ~/docker/config.json   See above. 
 ```
 
 ### Optional: How to extract information from the mirror registry (examples) 
@@ -273,7 +275,16 @@ OR
 
 oc mirror list operators --catalog bastion.lan:8443/steve/redhat/redhat-operator-index@sha256:f07deab29ed8694391f999b9da409d58fae02b66029306e2101fe868944de648
 
+oc-mirror list operators --catalogs --version=4.11
+registry.redhat.io/redhat/redhat-operator-index:v4.11
+registry.redhat.io/redhat/certified-operator-index:v4.11
+registry.redhat.io/redhat/community-operator-index:v4.11
+registry.redhat.io/redhat/redhat-marketplace-index:v4.11
+
+oc-mirror list releases --version=4.11
 oc mirror list releases --channel fast-4.11
+oc-mirror list releases --channels --version=4.11
+# See: https://github.com/openshift/oc-mirror#releases 
 
 # Extract binary from release (example) 
 oc adm release extract --registry-config "pull-secret.json" --command=openshift-baremetal-install --to "/usr/local/bin/" $VERSION
@@ -290,7 +301,7 @@ advanced-cluster-management  release-2.5  advanced-cluster-management.v2.5.1
 
 # Extract OCP version from the Release Image 
 
-oc adm release info -o template --template '{{.metadata.version}}' --insecure=true $REGISTRY_SERVER:8443/poc-mirror/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
+oc adm release info -o template --template '{{.metadata.version}}' --insecure=true $REGISTRY_SERVER:8443/ocp4/openshift4/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
 
 List Operators that are available to this cluster: 
 
@@ -298,7 +309,7 @@ List Operators that are available to this cluster:
 oc get packagemanifests -n openshift-marketplace
 ```
 
-# Find the image sha by logging into the registry with your browser, as above, after populating the registry and going to /poc-mirror/release-images -> Tags. 
+# Find the image sha by logging into the registry with your browser, as above, after populating the registry and going to /ocp4/openshift4/release-images -> Tags. 
 ```
 
 
@@ -312,8 +323,7 @@ Later, the yaml config in this dir will be applied to the OCP cluster.
 
 Verify that the Operators are available in the OCP console (how to do this on the CLI?)
 
-Only if needed: 
-Need to annotate MCN as there's a doc bug. 
+If installing ACM and you need MCH, annotate MCH as there's a doc bug. 
 
 ```
 apiVersion: operator.open-cluster-management.io/v1
@@ -344,7 +354,7 @@ Example:
 ```
 ./openshift-installer version
 built from commit ddf29b4b5bdb297648ce1b71b916b8cc1212f19a
-release image bastion.lan:8443/poc-mirror/openshift/release-images@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4
+release image bastion.lan:8443/ocp4/openshift4/openshift/release-images@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4
 release architecture amd64
 ```
 - Note that the (dev preview) binary may be primed to install from 'openshift.org' (the dev registry).  If this is the case this needs to be changed to point to your mirrored registry using the "billi-release.sh" script in the Appendix. 
@@ -361,8 +371,8 @@ The certificate (quay-rootCA/rootCA.pem)
 
 ### Verify the release image in the registry 
 
-Fetch the release image SHA ID from the registry UI and set the env. variable.
-It can be found in the UI e.g. under `/poc-mirror/openshift/release-images:v4.11` 
+Fetch the release image SHA ID from the registry UI (or the `oc adm` command below) and set the env. variable.
+It can be found in the UI e.g. under `/ocp4/openshift4/openshift/release-images:v4.11` 
 
 ```
 RELEASE_IMAGE=sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844
@@ -370,7 +380,7 @@ RELEASE_IMAGE=sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c02
 
 ```
 oc adm release info -o template --template '{{.metadata.version}}' --insecure=true \
-$REGISTRY_SERVER:8443/poc-mirror/openshift/release-images@$RELEASE_IMAGE; echo
+$REGISTRY_SERVER:8443/ocp4/openshift4/openshift/release-images@$RELEASE_IMAGE; echo
 ```
 - Fetch the sha value from the Registry UI. The Release Image is usually in the "release-images' repo. 
 
@@ -485,10 +495,10 @@ sshKey: |
   $SSH_PUB_KEY
 imageContentSources:
 - mirrors:
-  - $REGISTRY_SERVER:8443/poc-mirror/openshift/release
+  - $REGISTRY_SERVER:8443/ocp4/openshift4/openshift/release
   source: quay.io/openshift-release-dev/ocp-v4.0-art-dev
 - mirrors:
-  - $REGISTRY_SERVER:8444/poc-mirror/openshift/release-images
+  - $REGISTRY_SERVER:8444/ocp4/openshift4/openshift/release-images
   source: quay.io/openshift-release-dev/ocp-release
 END
 ```
@@ -648,12 +658,21 @@ END
 sudo dnf -y install nmstate    # Needed by "openshift-install agent" 
 ```
 
-Generate the book image iso. 
+Generate the boot image iso. 
+Note: We sure to unset the proxy vars, otherwise data may be fecthed from the internet and cause problems. 
+
+```
+unset no_proxy
+unset http_proxy
+unset https_proxy
+```
 
 ```
 rm -rf cluster-manifests && cp -rp cluster-manifests.src cluster-manifests && \
 bin/openshift-install agent create image --log-level debug --dir cluster-manifests
 ```
+
+Note: The nodes (VMs/hosts) that are being installed need to have the same date/time set.  If NTP is not configured (e.g. in vSphere), then set the times manually on all of them. If the nodes have times which are out of sync, then the installation will not start or will fail. 
 
 Now, boot all the nodes using the created agent.iso image found in cluster-manifests/.
 
