@@ -1131,3 +1131,27 @@ bind-key R source-file ~/.tmux.conf \; display-message "source-file done"
 END 
 ```
 
+
+## Troubelshooting agent-based installer 
+
+Run on the rendevous server, e.g. `10.0.1.51` in this example
+
+```
+# Does the agent start?
+ssh core@10.0.1.51 sudo journalctl -u agent.service -f
+
+# Does the assisted service run ok?
+ssh core@10.0.1.51 sudo journalctl -u assisted-service -f
+
+# Has the infra id been recognized?
+ssh core@10.0.1.51 curl -s 127.0.0.1:8090/api/assisted-install/v2/infra-envs
+
+# What events are there?  
+ssh core@10.0.1.51 curl -s 127.0.0.1:8090/api/assisted-install/v2/events
+```
+
+Be sure the correct RH COS image is being used, if not...:
+
+```
+rm -rf ~/.cache/agent
+```
