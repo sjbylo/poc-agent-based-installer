@@ -89,7 +89,7 @@ Kustomize Version: v4.5.4
 
 ### Configure pull secrets 
 
-Fetch your pull secret and store in a pull-secret.txt file.  If needed, ask the customer to do this with their Red Hat account. 
+Fetch your pull secret and store in a `pull-secret.txt` file.  If possible, ask the customer to do this with their own Red Hat account. 
 
 https://console.redhat.com/openshift/install/pull-secret 
 
@@ -98,7 +98,10 @@ https://console.redhat.com/openshift/install/pull-secret
 
 ### Install mirror script
 
-Ensure enough storage is mounted (300GB+), e.g. to /mnt, to store the images 
+Ensure enough storage is mounted, e.g. to /mnt, to store the images. 
+Depending on what you require to install, 30-50 GB is needed for the basic image content or 500GB+ for all image content. 
+
+Download the mirror install script:
 
 ```
 curl -sL https://developers.redhat.com/content-gateway/rest/mirror/pub/openshift-v4/clients/mirror-registry/latest/mirror-registry.tar.gz -o - | tar xzvf -
@@ -106,28 +109,22 @@ curl -sL https://developers.redhat.com/content-gateway/rest/mirror/pub/openshift
 
 ### Install Mirror Registry 
 
-Note: Be sure to add the folowing to /etc/hosts, otherwise you might see a "_segmentation violation_" error:
 
-```
-127.0.0.1   <output of hostname command>
-```
-
-See [this page on the issue](https://github.com/quay/mirror-registry/issues/60)
 
 Install the mirror registry 
 
 ```
-mkdir $HOME/quay-root.    # or store the registry data in a location with enough space
-sudo ./mirror-registry install   --quayHostname $REGISTRY_SERVER --quayRoot $HOME/quay-root
+#### mkdir $HOME/quay-root        # or store the registry data in a location with enough space
+sudo ./mirror-registry install  --quayHostname $REGISTRY_SERVER  --quayRoot $HOME/quay-root
 ```
 
-Note down username “init” and the auto generated password.
+Note the username “init” and the auto generated password.
 
 ```	
 REGISTRY_PW='xxxxxxxyyyyyyyyyyzzzzzzzzzzz'
 # Add this to ~/.bashrc 
+echo REGISTRY_PW="'xxxxxxxyyyyyyyyyyzzzzzzzzzzz'" >> ~/.bashrc  
 ```
-
 
 Note, how to remove the registry again, if needed
 
@@ -135,7 +132,16 @@ Note, how to remove the registry again, if needed
 sudo ./mirror-registry uninstall --quayRoot $HOME/quay-root --autoApprove
 ```
 
+Note: If you see a "_segmentation violation_" error, be sure to add the folowing to /etc/hosts:
+
+```
+127.0.0.1   <output of hostname command>
+```
+See [this page on the issue](https://github.com/quay/mirror-registry/issues/60)
+
 ### Registry root certs
+
+Set up the certs in the bastion so that `oc mirror` can connect to all required registries. 
 
 ```
 sudo cp $HOME/quay-root/quay-rootCA/rootCA* /etc/pki/ca-trust/source/anchors/ -v
@@ -163,21 +169,21 @@ REGISTRY_AUTH=`echo -n init:$REGISTRY_PW | base64 -w0`
 Generate yaml file (optional) 
 
 ```
+sudo yum install jq -y 
 cat ./pull-secret.txt | jq .  > pull-secret.json 
 ```
 
-Save the pull-seceret file
+Save the pull-seceret files 
 
 ```
 mkdir ~/.config/containers 
-cp pull-secret.txt  ~/.config/containers/auth.json
+cp pull-secret.json  ~/.config/containers/auth.json.  
 
-mkdir ~/.docker    # may not be needed 
-cp pull-secret.txt  ~/.docker/config.json.   # Needed by "oc mirror" 
+mkdir ~/.docker   
+cp pull-secret.json  ~/.docker/config.json.      # Needed by "oc mirror" 
 ```
 
-Both of these files are needed! 
-
+Note: Both of these files are needed. 
 
 ### Test registry is up
 
@@ -217,7 +223,7 @@ Note: be sure to have the correct access to both/all registries: username/passwo
 oc mirror init --registry $REGISTRY_SERVER:8443/ocp4/openshift4/mirror/oc-mirror-metadata > imageset-config-init.yaml  
 ```
 
-Edit the config file or use this example:
+Edit the config file generated (`imageset-config-init.yaml `) or use this example:
 
 ```
 cat > imageset-config.yaml <<END
@@ -226,7 +232,7 @@ apiVersion: mirror.openshift.io/v1alpha2
 storageConfig:
   registry:
     imageURL: $REGISTRY_SERVER:8443/ocp4/openshift4/mirror/oc-mirror-metadata
-    skipTLS: false
+    #skipTLS: false
 mirror:
   platform:
     channels:
@@ -816,6 +822,12 @@ Download the virtctl client by using the link listed for your distribution.
 
 ### Script to change the release image URL and OCP version in the openshift-install binary
 
+For this script to work, install the following. 
+
+```
+sudo yum install golang git make zip`
+```
+
 
 ```
 #!/usr/bin/env bash
@@ -847,7 +859,7 @@ function clone_agent_repo() {
 function build_agent_installer() {
     pushd installer
     # Steve
-    export GOCACHE=/mnt/tmp/.cache/go-build
+    export GOCACHE=/tmp/.cache/go-build
     hack/build.sh
     popd
 }
@@ -897,27 +909,25 @@ function complete_release() {
     ./openshift-install version
 }
 
-if [ "$#" -ne 1 ]; then
+if [ "$#" -ne 3 ]; then
     echo "Usage: billi-release2.sh <release image>"
     echo "[Arguments]"
-    echo "      <release image>     The desired OpenShift release image location"
+    echo "      <commit>            Commit, e.g. 'agent-installer'"
+    echo "      <release image>     The desired OpenShift release image location/url"
+    echo "      <version>           The desired OpenShift version, e.g. 4.11.5"
     echo
     echo "example: ./billi-release.sh quay.io/openshift-release-dev/ocp-release@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4"
 
     exit 1
 fi
 
-#commit=$1
+commit=$1
 release_image=$1
-release_version=$(oc adm release info -o template --template '{{.metadata.version}}' --insecure=true ${release_image})
-
-# Steve
-[ ! "$release_version" ] && echo "Cannot fetch release version from release image" && exit 1
-echo "Found release version = $release_version"
+release_version=$3
 
 verify_if_release_image_exists $release_image
-#clone_agent_repo $commit
-#build_agent_installer
+clone_agent_repo $commit
+build_agent_installer
 patch_openshift_install_release_version $release_version
 patch_openshift_install_release_image $release_image
 complete_release
