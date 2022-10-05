@@ -820,7 +820,9 @@ Download the virtctl client by using the link listed for your distribution.
 
 
 
-### Script to change the release image URL and OCP version in the openshift-install binary
+### Billi-release.sh script 
+
+This script can build the installer from source and change the embedded release image URL and OCP version in the openshift-install binary. 
 
 For this script to work, install the following. 
 
@@ -933,6 +935,12 @@ patch_openshift_install_release_image $release_image
 complete_release
 ```
 
+Example: how to run this script: 
+
+```
+./billi-release.sh agent-installer registry.example.com:8443/ocp4/openshift4/openshift/release-image@sha256:xxxyyzzz 4.11.5 
+# Fetch the SHAR ID of the release image you want to use from the registry. 
+```
 
 ### Example ImageContentSourcePolicy that works
 
