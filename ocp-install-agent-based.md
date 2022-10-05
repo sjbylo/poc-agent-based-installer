@@ -682,6 +682,13 @@ Note: The nodes (VMs/hosts) that are being installed need to have the same date/
 
 Now, boot all the nodes using the created agent.iso image found in cluster-manifests/.
 
+Watch the install progress
+
+```
+bin/openshift-install agent wait-for install-complete --dir cluster-manifests 
+# Ignore any "NTP" errors 
+```
+
 
 ## Disabling the default OperatorHub sources
 
@@ -1132,9 +1139,9 @@ END
 ```
 
 
-## Troubelshooting agent-based installer 
+### Troubelshooting agent-based installer 
 
-Run on the rendevous server, e.g. `10.0.1.51` in this example
+Run on the `rendezvous` server, e.g. `10.0.1.51` in this example
 
 ```
 # Does the agent start?
