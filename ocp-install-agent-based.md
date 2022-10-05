@@ -830,6 +830,7 @@ For this script to work, install the following.
 sudo yum install golang git make zip`
 ```
 
+billi-release.sh script:
 
 ```
 #!/usr/bin/env bash
@@ -863,6 +864,7 @@ function build_agent_installer() {
     # Steve
     export GOCACHE=/tmp/.cache/go-build
     hack/build.sh
+    cp bin/openshift-install ..
     popd
 }
 
@@ -924,7 +926,7 @@ if [ "$#" -ne 3 ]; then
 fi
 
 commit=$1
-release_image=$1
+release_image=$2
 release_version=$3
 
 verify_if_release_image_exists $release_image
@@ -940,6 +942,8 @@ Example: how to run this script:
 ```
 ./billi-release.sh agent-installer registry.example.com:8443/ocp4/openshift4/openshift/release-image@sha256:xxxyyzzz 4.11.5 
 # Fetch the SHAR ID of the release image you want to use from the registry. 
+
+installer/bin/openshift-install version
 ```
 
 ### Example ImageContentSourcePolicy that works
