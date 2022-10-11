@@ -213,6 +213,7 @@ sudo chmod +x /usr/local/bin/oc-mirror
 oc mirror help
 ```
 See [this blog](https://cloud.redhat.com/blog/mirroring-openshift-registries-the-easy-way) for more on the mirror plugin. 
+See [Mirroring images for a disconnected installation using the oc-mirror plug-in](https://docs.openshift.com/container-platform/4.11/installing/disconnected_install/installing-mirroring-disconnected.html)
 
 
 ### Generate the image set config file
@@ -315,8 +316,7 @@ List Operators that are available to this cluster:
 oc get packagemanifests -n openshift-marketplace
 ```
 
-# Find the image sha by logging into the registry with your browser, as above, after populating the registry and going to /ocp4/openshift4/release-images -> Tags. 
-```
+Find the image SHA ID by logging into the registry with your browser, as above, after populating the registry and going to /ocp4/openshift4/release-images -> Tags. 
 
 
 Find the generated catalogSource & imageContentSourcePolicy in the "results-*" dir 
@@ -363,7 +363,7 @@ built from commit ddf29b4b5bdb297648ce1b71b916b8cc1212f19a
 release image bastion.lan:8443/ocp4/openshift4/openshift/release-images@sha256:300bce8246cf880e792e106607925de0a404484637627edf5f517375517d54a4
 release architecture amd64
 ```
-- Note that the (dev preview) binary may be primed to install from 'openshift.org' (the dev registry).  If this is the case this needs to be changed to point to your mirrored registry using the "billi-release.sh" script in the Appendix. 
+- Note that the (dev preview) binary may be primed to install from 'openshift.org' (the dev registry).  If this is the case this needs to be changed to point to the release image in your mirrored registry using the "billi-release.sh" script in the Appendix. 
 
 
 #### Add the extra values in the install-config.yaml
@@ -508,6 +508,8 @@ imageContentSources:
   source: quay.io/openshift-release-dev/ocp-release
 END
 ```
+
+For more about `imageContentSources` see this [doc](https://github.com/openshift/installer/blob/master/docs/dev/alternative_release_image_sources.md#imagecontentsourcepolicy)
   
 To create agent-config.yaml, change the following fields:
 
@@ -680,9 +682,16 @@ bin/openshift-install agent create image --log-level debug --dir cluster-manifes
 
 Note: The nodes (VMs/hosts) that are being installed need to have the same date/time set.  If NTP is not configured (e.g. in vSphere), then set the times manually on all of them. If the nodes have times which are out of sync, then the installation will not start or will fail. 
 
+Also, ensure NTP/time is configured on the bastion host. 
+
 Now, boot all the nodes using the created agent.iso image found in cluster-manifests/.
 
-Watch the install progress
+To troubleshoot any possible issues with the installation, see the section in the Appendix. 
+
+Checklist:
+- Check that the machines/VMs have empty or fresh disks. 
+
+Watch the install progress: 
 
 ```
 bin/openshift-install agent wait-for install-complete --dir cluster-manifests 
@@ -829,9 +838,9 @@ Download the virtctl client by using the link listed for your distribution.
 
 ### Billi-release.sh script 
 
-This script can build the installer from source and change the embedded release image URL and OCP version in the openshift-install binary. 
+This script builds the openshift installer from source and changes the embedded release image URL and OCP version in the resulting `openshift-install` binary. 
 
-For this script to work, install the following. 
+For this script to work, first install the following packages: 
 
 ```
 sudo yum install golang git make zip`
@@ -944,14 +953,14 @@ patch_openshift_install_release_image $release_image
 complete_release
 ```
 
-Example: how to run this script: 
+Example of how to run this script: 
 
 ```
 ./billi-release.sh agent-installer registry.example.com:8443/ocp4/openshift4/openshift/release-image@sha256:xxxyyzzz 4.11.5 
-# Fetch the SHAR ID of the release image you want to use from the registry. 
 
 installer/bin/openshift-install version
 ```
+Note: Fetch the SHAR ID of the release image you want to use from your registry. 
 
 ### Example ImageContentSourcePolicy that works
 
@@ -1095,6 +1104,8 @@ sudo firewall-cmd  --add-service=dns --zone=public  --permanent
 sudo firewall-cmd --reload
 ```
 
+Consider configuring the bastion to use this (local) DNS server. 
+
 ### Configure XRDP for Remote Desktop access 
 
 See: https://linuxconfig.org/how-to-work-with-dnf-package-groups 
@@ -1155,6 +1166,9 @@ ssh core@10.0.1.51 curl -s 127.0.0.1:8090/api/assisted-install/v2/infra-envs
 
 # What events are there?  
 ssh core@10.0.1.51 curl -s 127.0.0.1:8090/api/assisted-install/v2/events
+
+# What about the bootstrap API?
+ssh core@10.0.1.51 journalctl -b -f -u bootkube.service
 ```
 
 Be sure the correct RH COS image is being used, if not...:
