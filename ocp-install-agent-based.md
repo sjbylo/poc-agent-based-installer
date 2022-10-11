@@ -1130,6 +1130,9 @@ Connect in the usual way to the server.  Log in with a user / password.
 
 ### Configure tmux
 
+Use ctl-a key instead of ctl-b 
+Use keys jkhl to move pane edges (Split pane with % or ") 
+
 ```
 cat > ~/.tmux.conf <<END
 # remap prefix from 'C-b' to 'C-a'
