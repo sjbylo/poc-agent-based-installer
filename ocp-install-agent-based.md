@@ -224,6 +224,8 @@ Note: be sure to have the correct access to both/all registries: username/passwo
 oc mirror init --registry $REGISTRY_SERVER:8443/ocp4/openshift4/mirror/oc-mirror-metadata > imageset-config-init.yaml  
 ```
 
+See all the current [OpenShift releases](https://console.redhat.com/openshift/releases)
+
 Edit the config file generated (`imageset-config-init.yaml `) or use this example:
 
 ```
@@ -295,10 +297,11 @@ oc-mirror list releases --channels --version=4.11
 
 # Extract binary from release (example) 
 oc adm release extract --registry-config "pull-secret.json" --command=openshift-baremetal-install --to "/usr/local/bin/" $VERSION
-
 ```
+
 Fetch release versions and channels: 
 
+```
 oc mirror list operators --package advanced-cluster-management --catalog registry.redhat.io/redhat/redhat-operator-index:v4.11             
 NAME                         DISPLAY NAME                                DEFAULT CHANNEL                                                                                  
 advanced-cluster-management  Advanced Cluster Management for Kubernetes  release-2.5
@@ -306,9 +309,11 @@ PACKAGE                      CHANNEL      HEAD
 advanced-cluster-management  release-2.5  advanced-cluster-management.v2.5.1
 ```
 
-# Extract OCP version from the Release Image 
+Extract OCP version from the Release Image 
 
+```
 oc adm release info -o template --template '{{.metadata.version}}' --insecure=true $REGISTRY_SERVER:8443/ocp4/openshift4/openshift/release-images@sha256:97410a5db655a9d3017b735c2c0747c849d09ff551765e49d5272b80c024a844; echo
+```
 
 List Operators that are available to this cluster: 
 
@@ -398,6 +403,8 @@ $REGISTRY_SERVER:8443/ocp4/openshift4/openshift/release-images@$RELEASE_IMAGE; e
 First, boot each type of node in your env. to determine:
 - Primary NIC name, e.g. ens192
 - Primary NIC mac address 
+
+Note: if you don't know the exact actual network interface name, specify any name and nmstate will configure the device name it finds. 
 
 Use the network interface name and its mac address to configure the install-config.yaml file
 
