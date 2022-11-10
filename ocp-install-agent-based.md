@@ -1160,7 +1160,7 @@ END
 ```
 
 
-### Troubelshooting agent-based installer 
+### Troubleshooting agent-based installer 
 
 Run on the `rendezvous` server, e.g. `10.0.1.51` in this example
 
